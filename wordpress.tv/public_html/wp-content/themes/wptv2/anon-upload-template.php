@@ -308,6 +308,10 @@ if ( isset( $_GET['post_category'] ) ) {
 							<label for="wptv_email"><?php esc_html_e( 'Email address' ); ?><span class="required"> * </span></label>
 							<input type="text" id="wptv_email" name="wptv_email" value="<?php echo esc_attr( wp_unslash( $_GET['wptv_email'] ?? '' ) ); ?>" />
 						</p>
+						<p>
+							<input type="checkbox" id="wptv_notify_approval" name="wptv_notify_approval" value="1" checked />
+							<label for="wptv_notify_approval"><?php esc_html_e( 'Notify me when my video is approved' ); ?></label>
+						</p>
 					<?php endif; ?>
 
 					<p>

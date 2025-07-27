@@ -353,6 +353,10 @@ class WPTV_Anon_Upload {
 		$post_meta['video_guid'] = $video_data->guid;
 		update_post_meta( $post_id, '_wptv_submitted_video', $post_meta );
 
+		// Save notification preference
+		$notify_approval = isset( $_posted['wptv_notify_approval'] ) ? '1' : '0';
+		update_post_meta( $post_id, '_wptv_notify_approval', $notify_approval );
+
 		// put back the globals
 		$_POST    = $_posted;
 		$_REQUEST = $_requested;
@@ -572,6 +576,14 @@ class WPTV_Anon_Upload {
 						<p class="label">Edit attachment:</p>
 						<p class="data">
 							<a href="<?php echo esc_url( get_edit_post_link( $meta['attachment_id'] ) ); ?>" target="_blank"><?php echo esc_html( $attachment_post->post_title ); ?></a>
+						</p>
+					</div>
+
+					<div class="row">
+						<p class="label">Notification:</p>
+						<p class="data">
+							<input type="checkbox" name="wptv_notify_uploader" value="1" checked />
+							<label>Send approval notification email to <?php echo esc_html( $meta['submitted_email'] ); ?></label>
 						</p>
 					</div>
 				</div>

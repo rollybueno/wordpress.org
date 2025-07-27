@@ -34,6 +34,7 @@ class WordPressTV_Theme {
 		add_action( 'save_post', array( $this, 'save_meta_box_fields' ), 10, 2);
 		add_action( 'wp_footer', array( $this, 'videopress_flash_params' ) );
 		add_action( 'transition_post_status', array( $this, 'transition_post_status' ), 10, 2 );
+		add_action( 'save_post', array( $this, 'save_notification_preference' ), 10, 2 );
 
 		add_filter( 'pre_option_blog_upload_space', array( $this, 'blog_upload_space' ) );
 
@@ -756,6 +757,160 @@ class WordPressTV_Theme {
 		}
 
 		bump_stats_extras( 'wptv-activity', 'publish-video' );
+		
+		// Send approval notification to uploader
+		$this->notify_uploader_of_approval( get_the_ID() );
+	}
+
+	/**
+	 * Save notification preference from admin interface
+	 *
+	 * @param int $post_id The post ID
+	 * @param WP_Post $post The post object
+	 */
+	function save_notification_preference( $post_id, $post ) {
+		if ( wp_is_post_revision( $post_id ) || defined( 'DOING_AUTOSAVE' ) || ! current_user_can( 'edit_post', $post_id ) ) {
+			return;
+		}
+
+		// Check if this is a video submission
+		$meta = get_post_meta( $post_id, '_wptv_submitted_video', true );
+		if ( ! $meta ) {
+			return;
+		}
+
+		// Save notification preference
+		$notify_uploader = isset( $_POST['wptv_notify_uploader'] ) ? '1' : '0';
+		update_post_meta( $post_id, '_wptv_notify_uploader', $notify_uploader );
+	}
+
+	/**
+	 * Notify uploader when their video is approved
+	 *
+	 * @param int $post_id The post ID of the approved video
+	 */
+	function notify_uploader_of_approval( $post_id ) {
+		$meta = get_post_meta( $post_id, '_wptv_submitted_video', true );
+		
+		if ( ! $meta || empty( $meta['submitted_email'] ) ) {
+			return;
+		}
+
+		// Check if user opted out of notifications
+		$notify_approval = get_post_meta( $post_id, '_wptv_notify_approval', true );
+		if ( $notify_approval === '0' ) {
+			return;
+		}
+
+		// Check if admin disabled notification
+		$notify_uploader = get_post_meta( $post_id, '_wptv_notify_uploader', true );
+		if ( $notify_uploader === '0' ) {
+			return;
+		}
+		
+		$post = get_post( $post_id );
+		$video_url = get_permalink( $post_id );
+		$video_title = $post->post_title;
+		
+		$subject = sprintf( 'Your WordPress.tv video "%s" has been approved!', $video_title );
+		
+		// Try to use HTML template, fallback to plain text
+		$template_path = get_template_directory() . '/email-templates/video-approved.html';
+		if ( file_exists( $template_path ) ) {
+			$message = file_get_contents( $template_path );
+			
+			$replacements = array(
+				'{uploader_name}' => $meta['submitted_by'],
+				'{video_title}' => $video_title,
+				'{video_url}' => $video_url,
+				'{approval_date}' => current_time( 'F j, Y' )
+			);
+			
+			$message = str_replace( array_keys( $replacements ), array_values( $replacements ), $message );
+			
+			// Send HTML email
+			$headers = array( 'Content-Type: text/html; charset=UTF-8' );
+			wp_mail( $meta['submitted_email'], $subject, $message, $headers );
+		} else {
+			// Fallback to plain text
+			$message = sprintf(
+				"Hello %s,\n\n" .
+				"Great news! Your video \"%s\" has been approved and is now live on WordPress.tv.\n\n" .
+				"You can view it here: %s\n\n" .
+				"Thank you for contributing to the WordPress community!\n\n" .
+				"Best regards,\n" .
+				"The WordPress.tv Team",
+				$meta['submitted_by'],
+				$video_title,
+				$video_url
+			);
+			
+			wp_mail( $meta['submitted_email'], $subject, $message );
+		}
+		
+		// Track notification sends
+		bump_stats_extras( 'wptv-notifications', 'approval-email-sent' );
+	}
+
+	/**
+	 * Notify uploader when their video is rejected
+	 *
+	 * @param int $post_id The post ID of the rejected video
+	 * @param string $reason Optional reason for rejection
+	 */
+	function notify_uploader_of_rejection( $post_id, $reason = '' ) {
+		$meta = get_post_meta( $post_id, '_wptv_submitted_video', true );
+		
+		if ( ! $meta || empty( $meta['submitted_email'] ) ) {
+			return;
+		}
+
+		// Check if user opted out of notifications
+		$notify_approval = get_post_meta( $post_id, '_wptv_notify_approval', true );
+		if ( $notify_approval === '0' ) {
+			return;
+		}
+		
+		$subject = 'Your WordPress.tv video submission needs attention';
+		$video_title = get_the_title( $post_id );
+		$rejection_reason = $reason ?: 'Please check video quality and content guidelines.';
+		
+		// Try to use HTML template, fallback to plain text
+		$template_path = get_template_directory() . '/email-templates/video-rejected.html';
+		if ( file_exists( $template_path ) ) {
+			$message = file_get_contents( $template_path );
+			
+			$replacements = array(
+				'{uploader_name}' => $meta['submitted_by'],
+				'{video_title}' => $video_title,
+				'{rejection_reason}' => $rejection_reason,
+				'{submission_date}' => get_the_date( 'F j, Y', $post_id )
+			);
+			
+			$message = str_replace( array_keys( $replacements ), array_values( $replacements ), $message );
+			
+			// Send HTML email
+			$headers = array( 'Content-Type: text/html; charset=UTF-8' );
+			wp_mail( $meta['submitted_email'], $subject, $message, $headers );
+		} else {
+			// Fallback to plain text
+			$message = sprintf(
+				"Hello %s,\n\n" .
+				"Your video \"%s\" could not be approved at this time.\n\n" .
+				"Reason: %s\n\n" .
+				"Please review and resubmit if appropriate.\n\n" .
+				"Best regards,\n" .
+				"The WordPress.tv Team",
+				$meta['submitted_by'],
+				$video_title,
+				$rejection_reason
+			);
+			
+			wp_mail( $meta['submitted_email'], $subject, $message );
+		}
+		
+		// Track notification sends
+		bump_stats_extras( 'wptv-notifications', 'rejection-email-sent' );
 	}
 
 	/**
